@@ -1,5 +1,7 @@
 # backtest-overfitting
 
+[![CI](https://github.com/augustusdexterous/augustusdexterous/actions/workflows/ci.yml/badge.svg)](https://github.com/augustusdexterous/augustusdexterous/actions/workflows/ci.yml) ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+
 Tools for detecting overfitting in strategy backtests. You feed in the results of a parameter search, a **returns matrix** of shape `(T, N)` (rows = time periods, columns = parameter trials), and get back:
 
 | Tool | Function | Question it answers |
@@ -25,6 +27,8 @@ python -m pytest -q
 Dependencies: `numpy`, `scipy` (`pytest` for tests). Python ≥ 3.9.
 
 ## Usage
+
+Full example (moving-average crossover grid on simulated prices): `python examples/parameter_sweep.py`
 
 ```python
 import numpy as np
