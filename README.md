@@ -29,6 +29,7 @@ Dependencies: `numpy`, `scipy` (`pytest` for tests). Python ≥ 3.9.
 ## Usage
 
 Full example (moving-average crossover grid on simulated prices): `python examples/parameter_sweep.py`
+Real-data example (S&P 500, 1999–2018): `python examples/sp500_real_data.py` (needs `pip install arch`)
 
 ```python
 import numpy as np
@@ -81,6 +82,57 @@ for train_idx, test_idx in bo.PurgedKFold(5, label_horizon=10).split(len(returns
     ...  # use it in your own model training as well
 ```
 
+## Chronological check
+
+Block-based methods (CSCV, purged k-fold) mix data from across the whole sample. `chronological_check` uses one time-ordered split instead: select on the data before the split, judge on the data after it.
+
+```python
+c = bo.chronological_check(returns, split=2000, top_k=10)   # row index of the split
+print(c.summary())
+```
+
+It reports the in-sample best trial's out-of-sample percentile, the Spearman correlation of in-sample and out-of-sample Sharpe across all trials, and the out-of-sample Sharpe of the in-sample top-k versus all trials.
+
+## Real-data example: S&P 500, 1999–2018
+
+`python examples/sp500_real_data.py` (needs `pip install arch`, which ships the adjusted-close series; no network access needed). It sweeps 209 moving-average crossover parameter pairs on 5,030 daily returns.
+
+```
+== 1. Full-sample report ==
+Deflated Sharpe Ratio      : 0.902
+PBO (CSCV, S=10)           : 0.349
+significant (holm, a=0.05) : 0/209
+walk-forward OOS SR        : 0.53 (ann.), efficiency=0.80
+purged k-fold OOS SR       : 0.42 (ann.), efficiency=0.66
+
+== 2. Chronological checks (annualized Sharpe, out-of-sample) ==
+ split  rank rho  IS-best pct  IS top-10  all trials  buy&hold
+  2003     +0.49          84%      +0.62       +0.58     +0.45
+  2006     +0.36          71%      +0.57       +0.57     +0.38
+  2009     -0.13          42%      +0.62       +0.68     +0.70
+  2012     +0.52          54%      +0.80       +0.75     +0.83
+  2015     +0.18          40%      +0.41       +0.37     +0.43
+```
+
+What this shows: the full-sample statistics look reasonable (DSR 0.90, PBO 0.35), but the chronological checks are mixed. The rank correlation is positive in four of five splits and negative in one (2009). Top-10 selections beat buy & hold out of sample only in 2003 and 2006. The 2009 split is the clearest failure: the in-sample winners fell to the 42nd out-of-sample percentile. Full-sample statistics alone would not have shown that. Costs, slippage and shorting are not modelled.
+
+## Calibration
+
+Measured with `simulate_trials` (pure noise unless stated; counts are Monte Carlo replications):
+
+| Check | Setting | Result | Nominal / note |
+|---|---|---|---|
+| Holm familywise false positive rate | null, T=1000, N=100, 3000 reps | 0.056 | 0.05 (±0.004 MC error) |
+| BH any-rejection rate | null, T=1000, N=100, 3000 reps | 0.056 | — |
+| Sharpe p-values, share below 0.05 | null, T=1000, N=100, 3000 reps | 0.050 | 0.05 |
+| DSR > 0.95 false positive rate | null, T=1000, N=100, 300 reps | 0.000 | ≤ 0.05 (conservative) |
+| DSR > 0.95, skilled trial, annual SR 1 | T=1000, N=100, 1000 reps | 0.008 | low power |
+| DSR > 0.95, skilled trial, annual SR 2 | T=1000, N=100, 1000 reps | 0.342 | low power |
+| DSR > 0.95, skilled trial, annual SR 3 | T=1500, N=50, 100 reps | 1.000 | — |
+| PBO under null / skilled (SR 1.5) | T=1000, 50 trials, S=8, 100 reps | 0.48 / 0.27 | null ≈ 0.5 |
+
+The false positive controls are close to nominal: Holm and BH sit at 0.056 against 0.05, within Monte Carlo error, and DSR is conservative at 0.000. DSR's power is low for modest skill: at T=1000 a skilled trial with annualized Sharpe 2 is flagged in only 34% of replications, while Sharpe 3 at T=1500 is flagged in all of them. A DSR below 0.95 on short data does not prove there is no edge.
+
 ## Interpreting the metrics
 
 **Deflated Sharpe Ratio (DSR).** The probability that the observed best Sharpe is greater than the expected *maximum* Sharpe from `N` random trials. It corrects for skewness, kurtosis and sample length.
@@ -115,6 +167,7 @@ backtest_overfitting/
   multiple_testing.py  Bonferroni, Holm, BH, BY, Sharpe p-values, haircut
   cv.py                WalkForward, PurgedKFold, cv_select
   report.py            analyze() -> OverfittingReport
+  consistency.py       chronological_check() — select before a split, judge after it
   data.py              simulate_trials() — synthetic data
 tests/test_kit.py      pytest tests
 ```

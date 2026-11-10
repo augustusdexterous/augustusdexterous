@@ -4,6 +4,7 @@ Input convention: a returns matrix of shape (T, N), rows = time periods,
 columns = parameter trials (one column per configuration tested).
 """
 
+from .consistency import ChronologicalCheck, chronological_check
 from .cv import CVSelectionResult, PurgedKFold, WalkForward, cv_select
 from .data import simulate_trials
 from .multiple_testing import (
@@ -31,10 +32,10 @@ from .sharpe import (
 __version__ = "0.1.0"
 
 __all__ = [
-    "CVSelectionResult", "DeflatedSharpeResult", "MultipleTestingResult",
+    "ChronologicalCheck", "CVSelectionResult", "DeflatedSharpeResult", "MultipleTestingResult",
     "OverfittingReport", "PBOResult", "PurgedKFold", "WalkForward",
     "adjust_pvalues", "analyze", "annualize_sharpe", "benjamini_hochberg",
-    "bonferroni", "cv_select", "deflated_sharpe_ratio", "expected_max_sharpe",
+    "bonferroni", "chronological_check", "cv_select", "deflated_sharpe_ratio", "expected_max_sharpe",
     "haircut_sharpe", "holm", "min_track_record_length", "multiple_testing",
     "pbo_cscv", "probabilistic_sharpe_ratio", "sharpe_pvalues", "sharpe_ratio",
     "simulate_trials",

@@ -199,3 +199,62 @@ def test_accepts_dataframe_like(noise):
             return self.a
 
     assert bo.pbo_cscv(Frame(noise), n_splits=4).pbo == bo.pbo_cscv(noise, n_splits=4).pbo
+
+
+# ---------- chronological consistency ----------
+
+def test_chronological_noise_does_not_transfer():
+    r = bo.simulate_trials(n_obs=2000, n_trials=100, seed=7)
+    c = bo.chronological_check(r, split=1000)
+    assert abs(c.rank_correlation) < 0.3
+    assert 0 <= c.oos_percentile_best <= 100
+
+
+def test_chronological_persistent_skill_transfers():
+    r = bo.simulate_trials(n_obs=2000, n_trials=20, n_skilled=1,
+                           true_sharpe_annual=3.0, seed=2)
+    c = bo.chronological_check(r, split=1000)
+    assert c.is_best == 0
+    assert c.oos_percentile_best >= 90
+    assert c.oos_sharpe_best > c.oos_sharpe_all
+
+
+def test_chronological_validation():
+    r = bo.simulate_trials(n_obs=100, n_trials=5, seed=0)
+    with pytest.raises(ValueError):
+        bo.chronological_check(r, split=1)
+    with pytest.raises(ValueError):
+        bo.chronological_check(r, split=50, top_k=6)
+
+
+# ---------- calibration (Monte Carlo) ----------
+
+def test_holm_familywise_error_is_controlled_under_null():
+    reps = 300
+    hits = sum(
+        bo.multiple_testing(bo.simulate_trials(500, 50, seed=s), "holm").n_significant > 0
+        for s in range(reps)
+    )
+    # nominal 0.05; allow ~3.5 standard errors of Monte Carlo noise
+    assert hits / reps <= 0.10
+
+
+def test_dsr_false_positive_rate_under_null():
+    reps = 300
+    hits = sum(
+        bo.deflated_sharpe_ratio(bo.simulate_trials(500, 50, seed=s)).dsr > 0.95
+        for s in range(reps)
+    )
+    assert hits / reps <= 0.05
+
+
+def test_dsr_detects_strong_skill_with_enough_data():
+    reps = 100
+    hits = sum(
+        bo.deflated_sharpe_ratio(
+            bo.simulate_trials(1500, 50, n_skilled=1, true_sharpe_annual=3.0, seed=s),
+            selected=0,
+        ).dsr > 0.95
+        for s in range(reps)
+    )
+    assert hits / reps >= 0.9
