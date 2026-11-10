@@ -13,26 +13,24 @@ jobs:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
+      - uses: astral-sh/setup-uv@v5
       - name: Install
-        run: pip install -e ".[dev,examples]"
+        run: |
+          uv venv --python "${{ matrix.python-version }}" .venv
+          uv pip install --python .venv/bin/python -e ".[dev]"
       - name: Test
-        run: python -m pytest -q
+        run: .venv/bin/python -m pytest -q
       - name: Module entry point
-        run: python -m backtest_overfitting examples/demo_returns.csv
+        run: .venv/bin/python -m backtest_overfitting examples/demo_returns.csv
       - name: Parameter sweep example
-        run: python examples/parameter_sweep.py > /dev/null
+        run: .venv/bin/python examples/parameter_sweep.py > /dev/null
 
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install ruff
-      - run: ruff check .
-      - run: ruff format --check .
+      - uses: astral-sh/setup-uv@v5
+      - name: Lint and format check
+        run: |
+          uvx ruff check .
+          uvx ruff format --check .
