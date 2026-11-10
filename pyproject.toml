@@ -4,18 +4,34 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "backtest-overfitting"
-version = "0.1.0"
-description = "Overfitting diagnostics for strategy backtests: DSR, PBO (CSCV), multiple testing, walk-forward and purged k-fold CV."
+version = "0.2.0"
+description = "Detect backtest overfitting: deflated Sharpe, probability of backtest overfitting (CSCV), multiple testing and chronological checks."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
+authors = [{ name = "augustusdexterous" }]
+keywords = ["backtest", "overfitting", "sharpe ratio", "deflated sharpe", "PBO", "CSCV", "quantitative finance"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Typing :: Typed",
+]
 dependencies = ["numpy>=1.22", "scipy>=1.8"]
 
 [project.optional-dependencies]
+examples = ["arch>=5"]
 dev = ["pytest>=7"]
+
+[project.scripts]
+backtest-overfitting = "backtest_overfitting.cli:main"
 
 [tool.setuptools]
 packages = ["backtest_overfitting"]
 
+[tool.setuptools.package-data]
+backtest_overfitting = ["py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests", "."]

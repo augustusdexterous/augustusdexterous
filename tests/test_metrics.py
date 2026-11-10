@@ -1,15 +1,14 @@
-"""Tests for backtest_overfitting_a.metrics (fixed seeds throughout)."""
+"""Tests for backtest_overfitting.metrics (fixed seeds throughout)."""
 
 from __future__ import annotations
 
-import itertools
 import math
 
 import numpy as np
 import pytest
 from scipy import stats
 
-from backtest_overfitting_a.metrics import (
+from backtest_overfitting.metrics import (
     EULER_MASCHERONI,
     deannualize_sharpe,
     deflated_sharpe_from_returns,
@@ -80,7 +79,7 @@ def test_expected_max_sharpe_matches_formula() -> None:
 
 def test_expected_max_sharpe_increases_with_n_trials() -> None:
     values = [expected_max_sharpe(n, 1.0) for n in (2, 3, 5, 10, 50, 100, 1000)]
-    assert all(later > earlier for earlier, later in itertools.pairwise(values))
+    assert all(later > earlier for earlier, later in zip(values, values[1:]))
 
 
 def test_expected_max_sharpe_scales_with_sqrt_variance() -> None:
@@ -136,7 +135,7 @@ def test_dsr_decreases_as_n_trials_grows() -> None:
         )
         for n in (1, 2, 5, 10, 50, 100, 1000)
     ]
-    assert all(later < earlier for earlier, later in itertools.pairwise(values))
+    assert all(later < earlier for earlier, later in zip(values, values[1:]))
 
 
 def test_dsr_from_returns_matches_component_computation() -> None:
@@ -158,7 +157,7 @@ def test_dsr_from_returns_decreases_with_trials() -> None:
         deflated_sharpe_from_returns(r, n, var_sharpe_trials=0.001)
         for n in (1, 10, 100, 1000)
     ]
-    assert all(later < earlier for earlier, later in itertools.pairwise(values))
+    assert all(later < earlier for earlier, later in zip(values, values[1:]))
 
 
 # --- closed-form checks of the PSR / DSR z-statistic ------------------------

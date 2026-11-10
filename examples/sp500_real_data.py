@@ -14,9 +14,9 @@ Three checks, in order:
 import sys
 
 import numpy as np
+from parameter_sweep import ma_crossover_returns
 
 import backtest_overfitting as bo
-from parameter_sweep import ma_crossover_returns
 
 SPLIT_YEARS = (2003, 2006, 2009, 2012, 2015)
 
@@ -32,7 +32,9 @@ def load_sp500():
 
 if __name__ == "__main__":
     prices, dates = load_sp500()
-    print(f"S&P 500 adjusted close: {prices.size} days, {dates[0].date()} to {dates[-1].date()}\n")
+    print(
+        f"S&P 500 adjusted close: {prices.size} days, {dates[0].date()} to {dates[-1].date()}\n"
+    )
 
     columns, labels = [], []
     for fast in range(5, 60, 5):
@@ -54,8 +56,12 @@ if __name__ == "__main__":
     for year in SPLIT_YEARS:
         k = int(np.searchsorted(dates, np.datetime64(f"{year}-01-01")))
         c = bo.chronological_check(returns, split=k, top_k=10)
-        bh = bo.sharpe_ratio(buy_hold[k:]) * np.sqrt(252)
-        print(f"{year:>6} {c.rank_correlation:>+9.2f} {c.oos_percentile_best:>11.0f}% "
-              f"{c.oos_sharpe_top_k:>+10.2f} {c.oos_sharpe_all:>+11.2f} {bh:>+9.2f}")
-    print("\nrank rho: correlation of in-sample and out-of-sample Sharpe across all trials.")
+        bh = bo.sharpe_ratio(buy_hold[k:], periods_per_year=252)
+        print(
+            f"{year:>6} {c.rank_correlation:>+9.2f} {c.oos_percentile_best:>11.0f}% "
+            f"{c.oos_sharpe_top_k:>+10.2f} {c.oos_sharpe_all:>+11.2f} {bh:>+9.2f}"
+        )
+    print(
+        "\nrank rho: correlation of in-sample and out-of-sample Sharpe across all trials."
+    )
     print("IS-best pct: out-of-sample percentile of the in-sample best trial.")

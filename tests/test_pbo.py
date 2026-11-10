@@ -1,4 +1,4 @@
-"""Tests for backtest_overfitting_a.pbo (fixed seeds throughout)."""
+"""Tests for backtest_overfitting.pbo (fixed seeds throughout)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import math
 import numpy as np
 import pytest
 
-from backtest_overfitting_a.pbo import _column_sharpe, probability_of_backtest_overfitting
+from backtest_overfitting.pbo import _column_sharpe, probability_of_backtest_overfitting
 
 
 def test_result_structure_and_shapes() -> None:

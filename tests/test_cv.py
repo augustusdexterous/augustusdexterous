@@ -1,11 +1,11 @@
-"""Tests for backtest_overfitting_a.cv (fixed seeds throughout)."""
+"""Tests for backtest_overfitting.cv (fixed seeds throughout)."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from backtest_overfitting_a.cv import purged_kfold_split, walk_forward_split
+from backtest_overfitting.cv import purged_kfold_split, walk_forward_split
 
 
 def _random_events(

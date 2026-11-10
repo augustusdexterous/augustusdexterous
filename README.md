@@ -1,109 +1,85 @@
 # backtest-overfitting
 
-[![CI](https://github.com/augustusdexterous/augustusdexterous/actions/workflows/ci.yml/badge.svg)](https://github.com/augustusdexterous/augustusdexterous/actions/workflows/ci.yml) ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+[![CI](https://github.com/augustusdexterous/augustusdexterous/actions/workflows/ci.yml/badge.svg)](https://github.com/augustusdexterous/augustusdexterous/actions/workflows/ci.yml)
+![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 
-Tools for detecting overfitting in strategy backtests. You feed in the results of a parameter search, a **returns matrix** of shape `(T, N)` (rows = time periods, columns = parameter trials), and get back:
+**Your best backtest is probably the luckiest one you tried.** If you search over 200 parameter sets, the top one looks good even when there is no edge at all. This library tells you how much of a backtest result survives that search, using the statistics from Bailey & López de Prado (deflated Sharpe ratio, probability of backtest overfitting) and the standard multiple-testing corrections.
 
-| Tool | Function | Question it answers |
-|---|---|---|
-| Deflated Sharpe Ratio | `deflated_sharpe_ratio` | Is the best Sharpe still significant after accounting for the number of trials and non-normal returns? |
-| Probability of Backtest Overfitting | `pbo_cscv` | How often does the in-sample winner fall below the median out-of-sample? |
-| Multiple-testing correction | `multiple_testing`, `adjust_pvalues`, `haircut_sharpe` | Which trials survive Bonferroni / Holm / BH / BY? |
-| Walk-forward CV | `WalkForward` + `cv_select` | What is the out-of-sample result of "pick the best on past data"? |
-| Purged k-fold CV | `PurgedKFold` + `cv_select` | The same, with no label leakage (purge + embargo) |
+Give it the returns of every configuration you tried, as a table. Get back a report.
 
-All Sharpe ratios are **per period** internally. `annualize_sharpe` and the report print annualized values.
-
-## Installation
-
-```bash
-git clone https://github.com/augustusdexterous/augustusdexterous.git
-cd augustusdexterous
-git checkout claude/simdi-zsmku5
-pip install -e ".[dev]"        # or: pip install -r requirements-dev.txt
-python -m pytest -q
+```
+$ backtest-overfitting examples/demo_returns.csv
+best trial: trial_01
+observations x trials      : 504 x 12
+best trial (full sample)   : #1  SR=1.06 (ann.)
+expected max SR under null : 0.88 (ann.)
+Deflated Sharpe Ratio      : 0.598
+PBO (CSCV, S=10)           : 0.635  (252 partitions)
+significant (holm, a=0.05) : 0/12
+chronological split 252    : rank rho=-0.11, IS-best OOS pct=0%, OOS SR best=-1.44 vs all=0.25
 ```
 
-Dependencies: `numpy`, `scipy` (`pytest` for tests). Python ≥ 3.9.
+The best trial has a Sharpe ratio of 1.06, but 12 trials were tried and the expected best of 12 pure-noise strategies is already 0.88. The deflated Sharpe ratio is 0.60, far below the 0.95 needed to call it significant. No trial survives the correction. The best in-sample trial then lands at the bottom of the out-of-sample ranking.
 
-## Usage
+## Install
 
-Full example (moving-average crossover grid on simulated prices): `python examples/parameter_sweep.py`
-Real-data example (S&P 500, 1999–2018): `python examples/sp500_real_data.py` (needs `pip install arch`)
+```bash
+pip install git+https://github.com/augustusdexterous/augustusdexterous.git@claude/simdi-zsmku5
+```
+
+Requires Python 3.9+, NumPy and SciPy. Tests pass locally on Python 3.9 and 3.13; CI runs 3.9 to 3.13.
+
+## Quick start
+
+Your data is a return matrix of shape `(T, N)`: `T` periods in time order, one column per configuration you tested.
 
 ```python
-import numpy as np
 import backtest_overfitting as bo
 
-# returns: (T, N) — e.g. 1000 days x 100 parameter combinations
-# (a pandas DataFrame also works; anything with .to_numpy() is accepted)
-returns = bo.simulate_trials(n_obs=1000, n_trials=100, seed=1)  # synthetic pure noise
-
+returns = bo.simulate_trials(
+    n_obs=1000, n_trials=100, seed=1
+)  # replace with your own (T, N) array or DataFrame
 report = bo.analyze(returns, periods_per_year=252)
 print(report.summary())
 ```
 
-```
-observations x trials      : 1000 x 100
-best trial (IS)            : #9  SR=1.11 (ann.)
-expected max SR under null : 1.32 (ann.)
-Deflated Sharpe Ratio      : 0.339
-PBO (CSCV, S=10)           : 0.611
-P(OOS loss | IS-best)      : 0.655
-significant (holm, a=0.05) : 0/100
-walk-forward OOS SR        : 0.82 (ann.), efficiency=0.48
-purged k-fold OOS SR       : -0.56 (ann.), efficiency=-0.47
+From the command line, a CSV with a header row works the same way (non-numeric columns such as dates are ignored):
+
+```bash
+backtest-overfitting my_trials.csv --periods-per-year 252 --splits 10
 ```
 
-The best trial shows an annualized Sharpe of 1.11, but that is below what you'd expect from 100 random trials (1.32). DSR is low, PBO is high, and no trial survives the correction, so the search found noise. When one genuinely skilled trial is added (`n_skilled=1, true_sharpe_annual=3.0`) the results are DSR ≈ 1.00, PBO = 0.00, and 1/20 trials significant.
+## What it measures
 
-### Using the tools individually
+| Question | Tool |
+|---|---|
+| Is the best Sharpe still significant after trying N configurations and accounting for skew and kurtosis? | `deflated_sharpe_ratio`, `deflated_sharpe_from_returns` |
+| How often does the in-sample winner end up below the out-of-sample median? | `probability_of_backtest_overfitting` (CSCV) |
+| Which trials survive a familywise or FDR correction? | `multiple_testing` (Bonferroni, Holm, BH, BY) |
+| How much Sharpe should I haircut from the best trial? | `haircut_sharpe` |
+| Does the best in-sample trial still rank well in a later period? | `chronological_check` |
+| If I pick the best on a rolling window and trade it, what do I get? | `walk_forward_selection` |
+| Clean train/test splits for labels that span several periods | `purged_kfold_split`, `walk_forward_split` |
 
-```python
-dsr = bo.deflated_sharpe_ratio(returns)               # best column by default
-dsr = bo.deflated_sharpe_ratio(returns, n_trials=500) # if more configurations were actually tried
-dsr.dsr, dsr.sr_benchmark, dsr.is_significant(0.05)
-
-pbo = bo.pbo_cscv(returns, n_splits=16)               # C(16, 8) = 12,870 combinations
-pbo = bo.pbo_cscv(returns, n_splits=16, max_combinations=2000, random_state=0)
-pbo = bo.pbo_cscv(returns, metric=lambda m: m.mean(axis=0))   # custom metric
-pbo.pbo, pbo.logits, pbo.degradation_slope, pbo.prob_oos_loss
-
-mt = bo.multiple_testing(returns, method="bh", alpha=0.05)    # bonferroni | holm | bh | by
-mt.adjusted_pvalues, mt.reject
-bo.adjust_pvalues([0.01, 0.04, 0.03], "holm")
-bo.haircut_sharpe(sr=0.1, n_obs=1000, n_trials=100)          # per-period SR
-
-wf = bo.cv_select(returns, bo.WalkForward(train_size=500, test_size=100, expanding=True, gap=5))
-pk = bo.cv_select(returns, bo.PurgedKFold(n_splits=5, label_horizon=10, embargo=0.01))
-wf.oos_sharpe, wf.efficiency, wf.selected, wf.oos_returns
-
-for train_idx, test_idx in bo.PurgedKFold(5, label_horizon=10).split(len(returns)):
-    ...  # use it in your own model training as well
-```
-
-## Chronological check
-
-Block-based methods (CSCV, purged k-fold) mix data from across the whole sample. `chronological_check` uses one time-ordered split instead: select on the data before the split, judge on the data after it.
-
-```python
-c = bo.chronological_check(returns, split=2000, top_k=10)   # row index of the split
-print(c.summary())
-```
-
-It reports the in-sample best trial's out-of-sample percentile, the Spearman correlation of in-sample and out-of-sample Sharpe across all trials, and the out-of-sample Sharpe of the in-sample top-k versus all trials.
+Everything is also available in one call through `analyze()`, which returns an `OverfittingReport` with each result as a field.
 
 ## Real-data example: S&P 500, 1999–2018
 
-`python examples/sp500_real_data.py` (needs `pip install arch`, which ships the adjusted-close series; no network access needed). It sweeps 209 moving-average crossover parameter pairs on 5,030 daily returns.
+```bash
+pip install arch            # ships the S&P 500 adjusted-close series; no network access needed
+python examples/sp500_real_data.py
+```
+
+The example sweeps 209 moving-average crossover parameter pairs (fast 5–55, slow 60–240) over 5,030 daily returns.
 
 ```
 == 1. Full-sample report ==
+best trial (full sample)   : #204  SR=0.60 (ann.)
+expected max SR under null : 0.30 (ann.)
 Deflated Sharpe Ratio      : 0.902
 PBO (CSCV, S=10)           : 0.349
 significant (holm, a=0.05) : 0/209
-walk-forward OOS SR        : 0.53 (ann.), efficiency=0.80
-purged k-fold OOS SR       : 0.42 (ann.), efficiency=0.66
 
 == 2. Chronological checks (annualized Sharpe, out-of-sample) ==
  split  rank rho  IS-best pct  IS top-10  all trials  buy&hold
@@ -114,67 +90,141 @@ purged k-fold OOS SR       : 0.42 (ann.), efficiency=0.66
   2015     +0.18          40%      +0.41       +0.37     +0.43
 ```
 
-What this shows: the full-sample statistics look reasonable (DSR 0.90, PBO 0.35), but the chronological checks are mixed. The rank correlation is positive in four of five splits and negative in one (2009). Top-10 selections beat buy & hold out of sample only in 2003 and 2006. The 2009 split is the clearest failure: the in-sample winners fell to the 42nd out-of-sample percentile. Full-sample statistics alone would not have shown that. Costs, slippage and shorting are not modelled.
+How to read it:
 
-## Calibration
+- The full-sample statistics look reasonable. The DSR of 0.90 is below 0.95, and the PBO of 0.35 is moderate.
+- The chronological checks are mixed. The ranking carries over in four of five splits and fails in 2009: the in-sample winners fell to the 42nd out-of-sample percentile.
+- Top-10 selections beat buy & hold out of sample only in 2003 and 2006.
+- The full-sample statistics alone would not have revealed the 2009 failure. That is why the chronological check exists.
+- Costs, slippage and shorting are not modelled, and this is one asset over one period.
 
-Measured with `simulate_trials` (pure noise unless stated; counts are Monte Carlo replications):
+## Calibration: does it do what it claims?
 
-| Check | Setting | Result | Nominal / note |
+These are Monte Carlo checks on `simulate_trials`. Replication counts are given in brackets. A nominal rate is what the theory promises.
+
+| Check | Setting | Measured | Nominal |
 |---|---|---|---|
-| Holm familywise false positive rate | null, T=1000, N=100, 3000 reps | 0.056 | 0.05 (±0.004 MC error) |
-| BH any-rejection rate | null, T=1000, N=100, 3000 reps | 0.056 | — |
-| Sharpe p-values, share below 0.05 | null, T=1000, N=100, 3000 reps | 0.050 | 0.05 |
-| DSR > 0.95 false positive rate | null, T=1000, N=100, 300 reps | 0.000 | ≤ 0.05 (conservative) |
-| DSR > 0.95, skilled trial, annual SR 1 | T=1000, N=100, 1000 reps | 0.008 | low power |
-| DSR > 0.95, skilled trial, annual SR 2 | T=1000, N=100, 1000 reps | 0.342 | low power |
-| DSR > 0.95, skilled trial, annual SR 3 | T=1500, N=50, 100 reps | 1.000 | — |
-| PBO under null / skilled (SR 1.5) | T=1000, 50 trials, S=8, 100 reps | 0.48 / 0.27 | null ≈ 0.5 |
+| Holm familywise false positive rate | pure noise, T=1000, N=100 [1500] | 0.057 (±0.006) | 0.05 |
+| BH any-rejection rate | pure noise, T=1000, N=100 [1500] | 0.059 | — |
+| Sharpe p-values below 0.05 | pure noise, T=1000, N=100 [300] | 0.052 | 0.05 |
+| DSR > 0.95 false positive rate | pure noise, T=1000, N=100 [300] | 0.000 | ≤ 0.05 |
+| DSR > 0.95, one skilled trial, annual SR 1 | T=1000, N=100 [300] | 0.003 | — |
+| DSR > 0.95, one skilled trial, annual SR 2 | T=1000, N=100 [300] | 0.31 | — |
+| DSR > 0.95, one skilled trial, annual SR 3 | T=1500, N=50 [300] | 1.00 | — |
+| PBO under pure noise / with skill (SR 1.5) | T=1000, N=50, S=8 [100] | 0.48 / 0.27 | 0.5 under noise |
 
-The false positive controls are close to nominal: Holm and BH sit at 0.056 against 0.05, within Monte Carlo error, and DSR is conservative at 0.000. DSR's power is low for modest skill: at T=1000 a skilled trial with annualized Sharpe 2 is flagged in only 34% of replications, while Sharpe 3 at T=1500 is flagged in all of them. A DSR below 0.95 on short data does not prove there is no edge.
+What this means:
 
-## Interpreting the metrics
+- **Error control holds.** Familywise and FDR false positive rates sit at the nominal level within Monte Carlo error. The DSR never fired on pure noise in these runs, so it is conservative.
+- **Power is limited by sample length.** With T=1000 (about four years of daily data), a skilled trial with annualized Sharpe 2 is flagged in 31% of replications. At T=1500 (six years), Sharpe 3 is flagged in all of them. A DSR below 0.95 on short data does not prove there is no edge.
+- **PBO behaves as designed.** It is near 0.5 under noise and drops with real skill.
 
-**Deflated Sharpe Ratio (DSR).** The probability that the observed best Sharpe is greater than the expected *maximum* Sharpe from `N` random trials. It corrects for skewness, kurtosis and sample length.
-- `> 0.95`: significant at the 5% level after deflation.
-- `≈ 0.5`: the result is no better than the best you'd get by chance.
-- `n_trials` must be the **number of configurations actually tried**. If you only include the good ones in the matrix, the DSR will be inflated. With highly correlated trials you can pass a smaller effective trial count.
+The calibration tests in `tests/test_calibration.py` run a smaller version of these checks on every push.
 
-**PBO (CSCV).** The data is split into `S` blocks. For every combination of S/2 blocks (in-sample, IS), the IS winner's rank in the remaining blocks (out-of-sample, OOS) is computed. PBO is the fraction of combinations in which the winner fell to or below the OOS median.
-- `< 0.1`: low overfitting risk. `0.1–0.5`: be cautious. `> 0.5`: the selection procedure is worse than random.
-- `degradation_slope < 0`: IS success predicts OOS failure.
-- `prob_oos_loss`: how often the IS winner lost money OOS.
-- `S` should be even. Larger values give more combinations but shorter blocks. 10–16 is typical.
+## Reading the metrics
 
-**Multiple-testing correction.** Each trial gets a one-sided p-value for `H0: SR ≤ 0` (= 1 − PSR).
-- Bonferroni and Holm control the family-wise error rate (FWER, strict).
-- BH controls the false discovery rate (FDR, more lenient). BY is valid under any dependence.
-- `haircut_sharpe` gives the Sharpe ratio implied by the corrected p-value (Harvey & Liu).
+**Deflated Sharpe ratio.** The probability that the observed Sharpe beats the expected best Sharpe of `N` pure-noise trials, after correcting for skew, kurtosis and sample length. Above 0.95 is significant after deflation. Near 0.5 means no better than luck.
 
-**Walk-forward / purged k-fold (`cv_select`).** On each fold the best trial is chosen on train and scored on test.
-- `oos_sharpe`: Sharpe of the concatenated OOS series. This is your realistic expectation.
-- `efficiency = mean(OOS score) / mean(IS score)`. Near 1 is good. Below 0.5, or negative, means you are fitting noise.
-- `label_horizon`: if labels/returns depend on future `h` periods (e.g. holding period), the training rows that overlap the test block are dropped (purge). `embargo` drops an extra margin after the test block.
+- `n_trials` must be the number of configurations you actually tried. Leaving out failed ones inflates the DSR.
+- With highly correlated trials, the effective number of independent trials is smaller and the DSR is conservative.
 
-**Rules of thumb.** Low DSR, high PBO, low efficiency → don't trust the result. Look at all of them together; a single metric isn't enough.
+**Probability of backtest overfitting (PBO).** The data is cut into `S` contiguous blocks. For each half-split, the in-sample winner is ranked out of sample. PBO is the share of splits where that winner falls at or below the out-of-sample median.
+
+- Below 0.1 is low risk. Above 0.5 means the selection procedure does worse than random.
+- Use an even `S`. 8–16 is typical.
+
+**Multiple testing.** Each trial gets a one-sided p-value for `H0: SR ≤ 0`, using the probabilistic Sharpe ratio. Holm and Bonferroni control the chance of any false discovery. BH and BY control the expected share of false discoveries among those reported. BY is valid under any dependence.
+
+**Chronological check.** Select on everything before a split, judge on everything after it.
+
+- A rank correlation near zero, or an in-sample best trial near the out-of-sample median, means the selection did not carry over.
+- Check several split points, as in the S&P 500 example. One split can be a coincidence.
+
+## Recipes
+
+```python
+import numpy as np
+import backtest_overfitting as bo
+
+returns = bo.simulate_trials(n_obs=1000, n_trials=100, seed=1)
+
+# Deflated Sharpe of one chosen trial, deflated by the whole search
+dsr = bo.deflated_sharpe_from_returns(
+    returns[:, 0],
+    n_trials=100,
+    var_sharpe_trials=float(
+        np.var([bo.sharpe_ratio(c, periods_per_year=1) for c in returns.T], ddof=1)
+    ),
+)
+
+# PBO with the full result
+pbo = bo.probability_of_backtest_overfitting(
+    returns, n_splits=16
+)  # C(16, 8) = 12,870 partitions
+pbo["pbo"], pbo["logits"], pbo["rank_oos"]
+
+# Multiple testing with a choice of correction
+mt = bo.multiple_testing(
+    returns, method="bh", alpha=0.05
+)  # bonferroni | holm | bh | by
+mt.adjusted_pvalues, mt.reject
+
+# Walk-forward: select on 500 periods, trade the choice on the next 100, roll forward
+wf = bo.walk_forward_selection(returns, train_size=500, test_size=100)
+wf.efficiency, wf.oos_sharpe_annual
+
+# Purged k-fold for labels that span several periods (e.g. a 5-day holding period)
+t0 = np.arange(len(returns))
+t1 = np.minimum(t0 + 5, len(returns) - 1)
+for train_idx, test_idx in bo.purged_kfold_split(t0, t1, n_splits=5, embargo_pct=0.01):
+    ...
+```
+
+## Limitations
+
+- **Your search space is part of the answer.** The tools only know about the trials you pass in. A grid you chose yourself counts as a search, and so does every idea you tried and discarded.
+- **Normal approximations.** P-values and the DSR use large-sample approximations. They are reasonable for daily data over years, and less so for a few dozen observations.
+- **Stationarity.** Everything assumes the return process is stable enough over the sample. The chronological check is there to test that, not to prove it.
+- **Not a backtester.** Inputs are returns. Costs, slippage and execution are your responsibility.
 
 ## Module layout
 
 ```
 backtest_overfitting/
-  sharpe.py            Sharpe, PSR, expected max SR, DSR, MinTRL
-  pbo.py               PBO via CSCV
-  multiple_testing.py  Bonferroni, Holm, BH, BY, Sharpe p-values, haircut
-  cv.py                WalkForward, PurgedKFold, cv_select
-  report.py            analyze() -> OverfittingReport
-  consistency.py       chronological_check() — select before a split, judge after it
-  data.py              simulate_trials() — synthetic data
-tests/test_kit.py      pytest tests
+  metrics.py           Sharpe, probabilistic and deflated Sharpe ratios, expected max Sharpe
+  pbo.py               Probability of backtest overfitting (CSCV)
+  multiple_testing.py  Bonferroni, Holm, BH, BY; Sharpe p-values; Harvey-Liu haircut
+  consistency.py       chronological_check: select before a split, judge after it
+  selection.py         walk_forward_selection: rolling pick-the-best evaluation
+  cv.py                purged_kfold_split, walk_forward_split
+  report.py            analyze(): all of the above in one call
+  cli.py               backtest-overfitting command
+  data.py              simulate_trials: synthetic return matrices
+examples/              S&P 500 real-data run, parameter sweep, demo CSV
+tests/                 unit, edge-case and Monte Carlo calibration tests
 ```
 
-## References
+## Development
 
-- Bailey & López de Prado (2014), *The Deflated Sharpe Ratio*.
-- Bailey, Borwein, López de Prado & Zhu (2016), *The Probability of Backtest Overfitting*.
-- Harvey & Liu (2015), *Backtesting*.
-- López de Prado (2018), *Advances in Financial Machine Learning*, ch. 7.
+```bash
+git clone https://github.com/augustusdexterous/augustusdexterous.git
+cd augustusdexterous && git checkout claude/simdi-zsmku5
+pip install -e ".[dev,examples]"
+python -m pytest -q
+ruff check . && ruff format --check .
+```
+
+CI runs the tests on Python 3.9 to 3.13, lints with ruff, runs the CLI on the demo CSV, and runs the parameter-sweep example.
+
+## Citation
+
+If this helps your research, see [`CITATION.cff`](CITATION.cff). The methods come from:
+
+- Bailey, D. H., & López de Prado, M. (2014). The Deflated Sharpe Ratio: Correcting for Selection Bias, Backtest Overfitting, and Non-Normality. *Journal of Portfolio Management*, 40(5), 94–107.
+- Bailey, D. H., Borwein, J., López de Prado, M., & Zhu, Q. J. (2017). The Probability of Backtest Overfitting. *Journal of Computational Finance*, 20(4), 39–69.
+- Harvey, C. R., & Liu, Y. (2015). Backtesting. *Journal of Portfolio Management*, 42(1), 13–28.
+- López de Prado, M. (2018). *Advances in Financial Machine Learning*, Chapter 7.
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).

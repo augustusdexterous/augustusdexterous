@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "backtest-overfitting"
+version: 0.2.0
+license: MIT
+repository-code: "https://github.com/augustusdexterous/augustusdexterous"
+abstract: "Detect backtest overfitting: deflated Sharpe ratio, probability of backtest overfitting (CSCV), multiple-testing corrections and chronological consistency checks."
+keywords:
+  - backtesting
+  - overfitting
+  - deflated Sharpe ratio
+  - probability of backtest overfitting
+preferred-citation:
+  type: article
+  authors:
+    - family-names: "Bailey"
+      given-names: "David H."
+    - family-names: "López de Prado"
+      given-names: "Marcos"
+  title: "The Deflated Sharpe Ratio: Correcting for Selection Bias, Backtest Overfitting, and Non-Normality"
+  journal: "Journal of Portfolio Management"
+  volume: 40
+  issue: 5
+  pages: "94-107"
+  year: 2014

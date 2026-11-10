@@ -20,7 +20,7 @@ def sma(x, w):
     """Simple moving average; NaN until the first full window."""
     c = np.cumsum(np.insert(x, 0, 0.0))
     out = np.full(len(x), np.nan)
-    out[w - 1:] = (c[w:] - c[:-w]) / w
+    out[w - 1 :] = (c[w:] - c[:-w]) / w
     return out
 
 

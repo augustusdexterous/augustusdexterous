@@ -1,8 +1,11 @@
-"""Multiple-testing corrections for many strategy trials.
+"""Multiple-testing corrections for a set of strategy trials.
 
-Provides Bonferroni, Holm (FWER) and Benjamini-Hochberg / Benjamini-Yekutieli
-(FDR) adjustments, plus Sharpe-based p-values and a Sharpe "haircut".
-Reference: Harvey & Liu (2015), "Backtesting".
+P-values test H0: true Sharpe <= ``sr_benchmark`` for each trial, using the
+probabilistic Sharpe ratio (non-normal standard error) from :mod:`metrics`.
+Adjustments: Bonferroni and Holm (familywise error), Benjamini-Hochberg and
+Benjamini-Yekutieli (false discovery rate).
+
+References: Harvey & Liu (2015), "Backtesting", Journal of Portfolio Management.
 """
 
 from __future__ import annotations
@@ -10,113 +13,150 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from numpy.typing import ArrayLike, NDArray
 from scipy import stats
 
-from ._utils import as_returns_matrix
-from .sharpe import _sr_std_error, sharpe_ratio
+from ._matrix import as_returns_matrix, column_moments, column_sharpe_per_period
+from .metrics import probabilistic_sharpe_ratio
+
+__all__ = [
+    "METHODS",
+    "MultipleTestingResult",
+    "adjust_pvalues",
+    "benjamini_hochberg",
+    "bonferroni",
+    "haircut_sharpe",
+    "holm",
+    "multiple_testing",
+    "sharpe_pvalues",
+]
 
 METHODS = ("bonferroni", "holm", "bh", "by")
 
 
-def _validate_p(pvalues) -> np.ndarray:
-    p = np.asarray(pvalues, dtype=float).ravel()
+def _validate_p(pvalues: ArrayLike) -> NDArray[np.float64]:
+    p = np.asarray(pvalues, dtype=np.float64).ravel()
     if p.size == 0:
         raise ValueError("pvalues is empty")
-    if np.any((p < 0) | (p > 1)) or not np.all(np.isfinite(p)):
+    if not np.all(np.isfinite(p)) or np.any((p < 0) | (p > 1)):
         raise ValueError("pvalues must be finite and within [0, 1]")
     return p
 
 
-def bonferroni(pvalues) -> np.ndarray:
+def bonferroni(pvalues: ArrayLike) -> NDArray[np.float64]:
+    """Bonferroni familywise adjustment: ``min(m * p, 1)``."""
     p = _validate_p(pvalues)
     return np.minimum(p * p.size, 1.0)
 
 
-def holm(pvalues) -> np.ndarray:
+def holm(pvalues: ArrayLike) -> NDArray[np.float64]:
+    """Holm step-down familywise adjustment (uniformly more powerful than Bonferroni)."""
     p = _validate_p(pvalues)
     m = p.size
     order = np.argsort(p)
-    adj = np.maximum.accumulate((m - np.arange(m)) * p[order])
+    adjusted = np.maximum.accumulate((m - np.arange(m)) * p[order])
     out = np.empty(m)
-    out[order] = np.minimum(adj, 1.0)
+    out[order] = np.minimum(adjusted, 1.0)
     return out
 
 
-def benjamini_hochberg(pvalues, dependent: bool = False) -> np.ndarray:
-    """BH step-up FDR adjustment; ``dependent=True`` gives Benjamini-Yekutieli."""
+def benjamini_hochberg(
+    pvalues: ArrayLike, dependent: bool = False
+) -> NDArray[np.float64]:
+    """Benjamini-Hochberg FDR adjustment; ``dependent=True`` gives Benjamini-Yekutieli."""
     p = _validate_p(pvalues)
     m = p.size
     order = np.argsort(p)[::-1]
     ranks = np.arange(m, 0, -1)
-    c = np.sum(1.0 / np.arange(1, m + 1)) if dependent else 1.0
-    adj = np.minimum.accumulate(p[order] * m * c / ranks)
+    c = float(np.sum(1.0 / np.arange(1, m + 1))) if dependent else 1.0
+    adjusted = np.minimum.accumulate(p[order] * m * c / ranks)
     out = np.empty(m)
-    out[order] = np.minimum(adj, 1.0)
+    out[order] = np.minimum(adjusted, 1.0)
     return out
 
 
-def adjust_pvalues(pvalues, method: str = "holm") -> np.ndarray:
-    method = method.lower()
-    if method == "bonferroni":
+def adjust_pvalues(pvalues: ArrayLike, method: str = "holm") -> NDArray[np.float64]:
+    """Adjust p-values with one of ``METHODS``: bonferroni, holm, bh, by."""
+    key = method.lower()
+    if key == "bonferroni":
         return bonferroni(pvalues)
-    if method == "holm":
+    if key == "holm":
         return holm(pvalues)
-    if method == "bh":
+    if key == "bh":
         return benjamini_hochberg(pvalues)
-    if method == "by":
+    if key == "by":
         return benjamini_hochberg(pvalues, dependent=True)
     raise ValueError(f"unknown method {method!r}; choose from {METHODS}")
 
 
-def sharpe_pvalues(returns, sr_benchmark: float = 0.0) -> np.ndarray:
-    """One-sided p-values for H0: SR <= sr_benchmark, one per trial column.
+def sharpe_pvalues(
+    returns: ArrayLike, sr_benchmark: float = 0.0
+) -> NDArray[np.float64]:
+    """One-sided p-value per trial for H0: per-period SR <= ``sr_benchmark``.
 
-    Uses the non-normal SR standard error (skew/kurtosis aware), i.e. 1 - PSR.
+    Equals ``1 - PSR(sr_benchmark)``. Zero-volatility trials get p = 1.
     """
-    arr = as_returns_matrix(returns, min_rows=3)
-    srs = np.atleast_1d(sharpe_ratio(arr))
-    skews = stats.skew(arr, axis=0, bias=False)
-    kurts = stats.kurtosis(arr, axis=0, fisher=False, bias=False)
-    t = arr.shape[0]
-    z = np.array([(sr - sr_benchmark) / _sr_std_error(sr, t, s, k)
-                  for sr, s, k in zip(srs, skews, kurts)])
-    return stats.norm.sf(z)
+    matrix = as_returns_matrix(returns, min_rows=3)
+    sr = column_sharpe_per_period(matrix)
+    skew, kurt = column_moments(matrix)
+    pvals = np.ones(matrix.shape[1])
+    for j in range(matrix.shape[1]):
+        if not np.isfinite(skew[j]) or not np.isfinite(kurt[j]):
+            continue  # zero-volatility column: moments undefined
+        try:
+            psr = probabilistic_sharpe_ratio(
+                sr[j], matrix.shape[0], skew[j], kurt[j], sr_benchmark
+            )
+        except ValueError:
+            continue  # non-positive variance term on pathological data
+        pvals[j] = 1.0 - psr
+    return pvals
 
 
 @dataclass(frozen=True)
 class MultipleTestingResult:
     method: str
     alpha: float
-    sharpe: np.ndarray
-    pvalues: np.ndarray
-    adjusted_pvalues: np.ndarray
-    reject: np.ndarray
+    sharpe: NDArray[np.float64]  # per-period Sharpe of each trial
+    pvalues: NDArray[np.float64]
+    adjusted_pvalues: NDArray[np.float64]
+    reject: NDArray[np.bool_]
 
     @property
     def n_significant(self) -> int:
         return int(self.reject.sum())
 
 
-def multiple_testing(returns, method: str = "holm", alpha: float = 0.05,
-                     sr_benchmark: float = 0.0) -> MultipleTestingResult:
-    """Test every trial's Sharpe against ``sr_benchmark`` with a correction."""
-    arr = as_returns_matrix(returns, min_rows=3)
-    p = sharpe_pvalues(arr, sr_benchmark)
-    adj = adjust_pvalues(p, method)
-    return MultipleTestingResult(method, alpha, np.atleast_1d(sharpe_ratio(arr)),
-                                 p, adj, adj <= alpha)
+def multiple_testing(
+    returns: ArrayLike,
+    method: str = "holm",
+    alpha: float = 0.05,
+    sr_benchmark: float = 0.0,
+) -> MultipleTestingResult:
+    """Test every trial's Sharpe against ``sr_benchmark`` with a multiplicity correction."""
+    matrix = as_returns_matrix(returns, min_rows=3)
+    p = sharpe_pvalues(matrix, sr_benchmark)
+    adjusted = adjust_pvalues(p, method)
+    return MultipleTestingResult(
+        method=method,
+        alpha=alpha,
+        sharpe=column_sharpe_per_period(matrix),
+        pvalues=p,
+        adjusted_pvalues=adjusted,
+        reject=adjusted <= alpha,
+    )
 
 
-def haircut_sharpe(sr: float, n_obs: int, n_trials: int, method: str = "bonferroni") -> float:
-    """Harvey-Liu Sharpe haircut: SR implied by the multiple-testing-adjusted p-value.
+def haircut_sharpe(
+    sharpe: float, n_obs: int, n_trials: int, method: str = "bonferroni"
+) -> float:
+    """Harvey-Liu Sharpe haircut: the per-period SR implied by the corrected p-value.
 
-    ``sr`` is per period; returns the haircut per-period SR (>= 0) under a
-    normal-returns t-statistic approximation t = SR * sqrt(T). Method is
-    "bonferroni" or "sidak".
+    Uses the normal approximation t = SR * sqrt(T). ``method`` is "bonferroni" or "sidak".
     """
     if n_obs < 2 or n_trials < 1:
         raise ValueError("n_obs must be >= 2 and n_trials >= 1")
-    p_single = stats.norm.sf(sr * np.sqrt(n_obs))
+    p_single = float(stats.norm.sf(sharpe * np.sqrt(n_obs)))
     if method == "bonferroni":
         p_adj = min(p_single * n_trials, 1.0)
     elif method == "sidak":
