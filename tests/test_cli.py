@@ -22,7 +22,7 @@ def test_load_trials_skips_non_numeric_columns(tmp_path):
         [["2020-01-01", "0.01", "-0.02"], ["2020-01-02", "0.00", "0.03"]],
         ["date", "a", "b"],
     )
-    names, matrix = load_trials(p)
+    names, matrix, _ = load_trials(p)
     assert names == ["a", "b"]
     assert matrix.shape == (2, 2)
 

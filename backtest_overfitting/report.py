@@ -7,7 +7,12 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import ArrayLike
 
-from ._matrix import as_returns_matrix, column_moments, column_sharpe_per_period
+from ._matrix import (
+    as_returns_matrix,
+    column_moments,
+    column_sharpe_per_period,
+    validate_periods_per_year,
+)
 from .consistency import ChronologicalCheck, chronological_check
 from .metrics import deflated_sharpe_ratio, expected_max_sharpe
 from .multiple_testing import MultipleTestingResult, multiple_testing
@@ -78,6 +83,7 @@ def analyze(
     ``returns`` is (T, N): rows are periods in time order, columns are trials.
     ``split`` is the row index for the chronological check (default: the midpoint).
     """
+    periods_per_year = validate_periods_per_year(periods_per_year)
     matrix = as_returns_matrix(returns, min_rows=2 * n_splits, min_cols=2)
     t, n = matrix.shape
     sr_period = column_sharpe_per_period(matrix)
@@ -103,5 +109,6 @@ def analyze(
             matrix,
             split=split if split is not None else t // 2,
             periods_per_year=periods_per_year,
+            top_k=min(10, n),
         ),
     )

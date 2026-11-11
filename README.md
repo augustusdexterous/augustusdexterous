@@ -50,6 +50,8 @@ From the command line, a CSV with a header row works the same way (non-numeric c
 backtest-overfitting my_trials.csv --periods-per-year 252 --splits 10
 ```
 
+Input rules for the CSV: one header row, then one row per period, oldest first. Trial columns must hold decimal returns (0.01 means 1%). The tool skips, with a note on stderr, any column that contains text (such as dates), and any column with a value of 1 or more in magnitude (usually prices or YYYYMMDD dates). A blank or missing value in a trial column is an error, because silently dropping a trial would change the answer. To choose columns yourself, use `--columns trial_01,trial_02`.
+
 ## What it measures
 
 | Question | Tool |
@@ -62,7 +64,7 @@ backtest-overfitting my_trials.csv --periods-per-year 252 --splits 10
 | If I pick the best on a rolling window and trade it, what do I get? | `walk_forward_selection` |
 | Clean train/test splits for labels that span several periods | `purged_kfold_split`, `walk_forward_split` |
 
-Everything is also available in one call through `analyze()`, which returns an `OverfittingReport` with each result as a field.
+The core checks (DSR, PBO, multiple testing, chronological check) run together in `analyze()`, which returns an `OverfittingReport`. Walk-forward selection, the splitters and the Sharpe haircut are separate functions.
 
 ## Real-data example: S&P 500, 1999–2018
 
@@ -107,19 +109,19 @@ These are Monte Carlo checks on `simulate_trials`. Replication counts are given 
 | Holm familywise false positive rate | pure noise, T=1000, N=100 [1500] | 0.057 (±0.006) | 0.05 |
 | BH any-rejection rate | pure noise, T=1000, N=100 [1500] | 0.059 | — |
 | Sharpe p-values below 0.05 | pure noise, T=1000, N=100 [300] | 0.052 | 0.05 |
-| DSR > 0.95 false positive rate | pure noise, T=1000, N=100 [300] | 0.000 | ≤ 0.05 |
-| DSR > 0.95, one skilled trial, annual SR 1 | T=1000, N=100 [300] | 0.003 | — |
-| DSR > 0.95, one skilled trial, annual SR 2 | T=1000, N=100 [300] | 0.31 | — |
-| DSR > 0.95, one skilled trial, annual SR 3 | T=1500, N=50 [300] | 1.00 | — |
+| DSR > 0.95 false positive rate, for the selected best trial | pure noise, T=1000, N=100 [1000] | 0.001 | ≤ 0.05 |
+| DSR > 0.95, one skilled trial (evaluated directly), annual SR 1 | T=1000, N=100 [300] | 0.003 | — |
+| DSR > 0.95, one skilled trial (evaluated directly), annual SR 2 | T=1000, N=100 [300] | 0.31 | — |
+| DSR > 0.95, one skilled trial (evaluated directly), annual SR 3 | T=1500, N=50 [300] | 1.00 | — |
 | PBO under pure noise / with skill (SR 1.5) | T=1000, N=50, S=8 [100] | 0.48 / 0.27 | 0.5 under noise |
 
 What this means:
 
-- **Error control holds.** Familywise and FDR false positive rates sit at the nominal level within Monte Carlo error. The DSR never fired on pure noise in these runs, so it is conservative.
+- **Error control holds.** Familywise and FDR false positive rates sit at the nominal level within Monte Carlo error. The DSR of the selected best trial fired on pure noise in 1 of 1000 runs, so it is conservative.
 - **Power is limited by sample length.** With T=1000 (about four years of daily data), a skilled trial with annualized Sharpe 2 is flagged in 31% of replications. At T=1500 (six years), Sharpe 3 is flagged in all of them. A DSR below 0.95 on short data does not prove there is no edge.
 - **PBO behaves as designed.** It is near 0.5 under noise and drops with real skill.
 
-The calibration tests in `tests/test_calibration.py` run a smaller version of these checks on every push.
+`tests/test_calibration.py` runs smaller versions of three of these checks (Holm, DSR false positives, DSR power) on every push.
 
 ## Reading the metrics
 
@@ -209,7 +211,7 @@ tests/                 unit, edge-case and Monte Carlo calibration tests
 ```bash
 git clone https://github.com/augustusdexterous/augustusdexterous.git
 cd augustusdexterous && git checkout claude/simdi-zsmku5
-pip install -e ".[dev,examples]"
+pip install -e ".[dev,examples]" ruff
 python -m pytest -q
 ruff check . && ruff format --check .
 ```

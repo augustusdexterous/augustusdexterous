@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy import stats
@@ -36,12 +38,38 @@ def as_returns_matrix(
     return arr
 
 
-def column_sharpe_per_period(matrix: NDArray[np.float64]) -> NDArray[np.float64]:
-    """Non-annualized Sharpe ratio of every column. Zero-volatility columns get 0.0."""
-    mean = matrix.mean(axis=0)
+def validate_periods_per_year(periods_per_year: float) -> float:
+    """Require a finite, strictly positive number of periods per year."""
+    value = float(periods_per_year)
+    if not (math.isfinite(value) and value > 0):
+        raise ValueError(
+            f"periods_per_year must be a finite positive number, got {periods_per_year}"
+        )
+    return value
+
+
+def flat_mask(matrix: NDArray[np.float64]) -> NDArray[np.bool_]:
+    """Columns with zero volatility (constant, including all zeros)."""
     std = matrix.std(axis=0, ddof=1)
     scale = np.max(np.abs(matrix), axis=0)
-    flat = std <= _ZERO_VOL_RTOL * scale
+    return std <= _ZERO_VOL_RTOL * scale
+
+
+def column_sharpe_per_period(matrix: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Non-annualized Sharpe ratio of every column.
+
+    All-zero columns (no trading) score 0.0. A constant non-zero column has an
+    undefined (infinite) Sharpe ratio, so it is rejected instead of being ranked.
+    """
+    mean = matrix.mean(axis=0)
+    flat = flat_mask(matrix)
+    bad = np.flatnonzero(flat & (mean != 0))
+    if bad.size:
+        raise ValueError(
+            f"trial {int(bad[0])} has constant non-zero returns; its Sharpe ratio is undefined. "
+            "Remove it or check how the return series was built."
+        )
+    std = matrix.std(axis=0, ddof=1)
     safe_std = np.where(flat, 1.0, std)
     return np.where(flat, 0.0, mean / safe_std)
 
@@ -49,7 +77,15 @@ def column_sharpe_per_period(matrix: NDArray[np.float64]) -> NDArray[np.float64]
 def column_moments(
     matrix: NDArray[np.float64],
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Moment-based skewness and raw kurtosis (normal = 3) of every column."""
-    skew = stats.skew(matrix, axis=0, bias=True)
-    kurt = stats.kurtosis(matrix, axis=0, fisher=False, bias=True)
-    return np.asarray(skew, dtype=np.float64), np.asarray(kurt, dtype=np.float64)
+    """Moment-based skewness and raw kurtosis (normal = 3) of every column.
+
+    Zero-volatility columns get the normal-distribution values (skew 0, kurtosis 3)
+    because their moments are undefined.
+    """
+    flat = flat_mask(matrix)
+    with np.errstate(all="ignore"):
+        skew = stats.skew(matrix, axis=0, bias=True)
+        kurt = stats.kurtosis(matrix, axis=0, fisher=False, bias=True)
+    skew = np.where(flat, 0.0, np.asarray(skew, dtype=np.float64))
+    kurt = np.where(flat, 3.0, np.asarray(kurt, dtype=np.float64))
+    return skew, kurt

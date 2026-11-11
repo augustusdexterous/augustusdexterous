@@ -13,7 +13,11 @@ import numpy as np
 from numpy.typing import ArrayLike
 from scipy.stats import rankdata
 
-from ._matrix import as_returns_matrix, column_sharpe_per_period
+from ._matrix import (
+    as_returns_matrix,
+    column_sharpe_per_period,
+    validate_periods_per_year,
+)
 
 __all__ = ["ChronologicalCheck", "chronological_check"]
 
@@ -66,6 +70,7 @@ def chronological_check(
     correlation near zero, or an in-sample best trial near the out-of-sample median,
     means the selection did not carry over to the later period.
     """
+    periods_per_year = validate_periods_per_year(periods_per_year)
     matrix = as_returns_matrix(returns, min_rows=4, min_cols=2)
     t, n = matrix.shape
     if not 2 <= split <= t - 2:

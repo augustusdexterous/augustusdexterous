@@ -7,7 +7,11 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import ArrayLike
 
-from ._matrix import as_returns_matrix, column_sharpe_per_period
+from ._matrix import (
+    as_returns_matrix,
+    column_sharpe_per_period,
+    validate_periods_per_year,
+)
 from .cv import walk_forward_split
 
 __all__ = ["SelectionResult", "walk_forward_selection"]
@@ -44,6 +48,7 @@ def walk_forward_selection(
     training window rolls forward with fixed length. An efficiency well below 1 means
     the in-sample winners do not keep their edge.
     """
+    periods_per_year = validate_periods_per_year(periods_per_year)
     matrix = as_returns_matrix(returns, min_rows=4, min_cols=2)
     t = matrix.shape[0]
     selected, is_s, oos_s, oos_r = [], [], [], []

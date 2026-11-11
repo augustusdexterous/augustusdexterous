@@ -16,7 +16,12 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy import stats
 
-from ._matrix import as_returns_matrix, column_moments, column_sharpe_per_period
+from ._matrix import (
+    as_returns_matrix,
+    column_moments,
+    column_sharpe_per_period,
+    flat_mask,
+)
 from .metrics import probabilistic_sharpe_ratio
 
 __all__ = [
@@ -94,21 +99,19 @@ def sharpe_pvalues(
 ) -> NDArray[np.float64]:
     """One-sided p-value per trial for H0: per-period SR <= ``sr_benchmark``.
 
-    Equals ``1 - PSR(sr_benchmark)``. Zero-volatility trials get p = 1.
+    Equals ``1 - PSR(sr_benchmark)``. Zero-volatility trials cannot reject, so they get p = 1.
     """
     matrix = as_returns_matrix(returns, min_rows=3)
     sr = column_sharpe_per_period(matrix)
     skew, kurt = column_moments(matrix)
+    flat = flat_mask(matrix)
     pvals = np.ones(matrix.shape[1])
     for j in range(matrix.shape[1]):
-        if not np.isfinite(skew[j]) or not np.isfinite(kurt[j]):
-            continue  # zero-volatility column: moments undefined
-        try:
-            psr = probabilistic_sharpe_ratio(
-                sr[j], matrix.shape[0], skew[j], kurt[j], sr_benchmark
-            )
-        except ValueError:
-            continue  # non-positive variance term on pathological data
+        if flat[j]:
+            continue
+        psr = probabilistic_sharpe_ratio(
+            sr[j], matrix.shape[0], skew[j], kurt[j], sr_benchmark
+        )
         pvals[j] = 1.0 - psr
     return pvals
 
@@ -150,19 +153,29 @@ def multiple_testing(
 def haircut_sharpe(
     sharpe: float, n_obs: int, n_trials: int, method: str = "bonferroni"
 ) -> float:
-    """Harvey-Liu Sharpe haircut: the per-period SR implied by the corrected p-value.
+    """Harvey-Liu Sharpe haircut: the per-period SR whose single-test p-value equals the
+    adjusted p-value of ``sharpe``.
 
-    Uses the normal approximation t = SR * sqrt(T). ``method`` is "bonferroni" or "sidak".
+    Uses the normal approximation t = SR * sqrt(T). ``method`` is "bonferroni" (p * N) or
+    "sidak" (1 - (1 - p)^N). Adjusted p-values are capped at 1; values below 1e-300 are
+    floored there so the inverse stays finite.
     """
     if n_obs < 2 or n_trials < 1:
         raise ValueError("n_obs must be >= 2 and n_trials >= 1")
-    p_single = float(stats.norm.sf(sharpe * np.sqrt(n_obs)))
+    if not np.isfinite(sharpe):
+        raise ValueError("sharpe must be finite")
+    log_p = float(stats.norm.logsf(sharpe * np.sqrt(n_obs)))
+    p_single = float(np.exp(log_p))
     if method == "bonferroni":
         p_adj = min(p_single * n_trials, 1.0)
     elif method == "sidak":
-        p_adj = 1.0 - (1.0 - p_single) ** n_trials
+        # -expm1(N * log1p(-p)) keeps precision when p is tiny.
+        p_adj = (
+            min(-np.expm1(n_trials * np.log1p(-p_single)), 1.0) if p_single < 1 else 1.0
+        )
     else:
         raise ValueError("method must be 'bonferroni' or 'sidak'")
     if p_adj >= 0.5:
         return 0.0
+    p_adj = max(p_adj, 1e-300)
     return float(stats.norm.isf(p_adj) / np.sqrt(n_obs))

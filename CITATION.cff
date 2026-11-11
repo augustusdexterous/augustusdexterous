@@ -1,4 +1,6 @@
 cff-version: 1.2.0
+authors:
+  - name: "augustusdexterous"
 message: "If you use this software, please cite it as below."
 title: "backtest-overfitting"
 version: 0.2.0

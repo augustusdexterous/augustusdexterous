@@ -18,3 +18,9 @@ def dsr_of_column(matrix, j):
     return bo.deflated_sharpe_from_returns(
         matrix[:, j], n_trials=matrix.shape[1], var_sharpe_trials=var
     )
+
+
+def dsr_of_best(matrix):
+    """DSR of the trial with the highest Sharpe, deflated by all columns (what analyze() reports)."""
+    srs = per_period_srs(matrix)
+    return dsr_of_column(matrix, int(np.argmax(srs)))

@@ -27,13 +27,15 @@ def load_sp500():
     except ImportError:
         sys.exit("This example needs the optional package: pip install arch")
     df = sp500.load()
-    return df["Adj Close"].to_numpy(dtype=float), df.index[1:]
+    return df["Adj Close"].to_numpy(dtype=float), df.index
 
 
 if __name__ == "__main__":
-    prices, dates = load_sp500()
+    prices, price_dates = load_sp500()
+    dates = price_dates[1:]  # returns start one day after the first price
     print(
-        f"S&P 500 adjusted close: {prices.size} days, {dates[0].date()} to {dates[-1].date()}\n"
+        f"S&P 500 adjusted close: {prices.size} prices, {price_dates[0].date()} to "
+        f"{price_dates[-1].date()}; {dates.size} daily returns\n"
     )
 
     columns, labels = [], []
